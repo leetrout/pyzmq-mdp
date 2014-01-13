@@ -27,6 +27,7 @@ from zmq.eventloop.zmqstream import ZMQStream
 from zmq.eventloop.ioloop import PeriodicCallback
 
 from util import split_address
+from exceptions import UnknownProtocol
 
 ###
 
@@ -68,7 +69,6 @@ class MDPBroker(object):
     CLIENT_PROTO = b'MDPC01'  #: Client protocol identifier
     WORKER_PROTO = b'MDPW01'  #: Worker protocol identifier
 
-
     def __init__(self, context, main_ep, opt_ep=None, worker_q=None):
         """Init MDPBroker instance.
         """
@@ -93,6 +93,11 @@ class MDPBroker(object):
                               }
         self.hb_check_timer = PeriodicCallback(self.on_timer, HB_INTERVAL)
         self.hb_check_timer.start()
+        # register protocols to handlers (default without versioning)
+        self._message_handlers = {
+            self.CLIENT_PROTO[:4]: self.on_client,
+            self.WORKER_PROTO[:4]: self.on_worker
+        }
         return
 
     def register_worker(self, wid, service):
@@ -434,12 +439,11 @@ class MDPBroker(object):
         rp, msg = split_address(msg)
         # dispatch on first frame after path
         t = msg.pop(0)
-        if t.startswith(b'MDPW'):
-            self.on_worker(t, rp, msg)
-        elif t.startswith(b'MDPC'):
-            self.on_client(t, rp, msg)
+        handler = self._message_handlers.get(t[:4])
+        if handler:
+            handler(t, rp, msg)
         else:
-            print 'Broker unknown Protocol: "%s"' % t
+            raise UnknownProtocol("Unknown protocol: %s" % t)
         return
 #
 
